@@ -10,7 +10,10 @@ def double_conv(in_channels, out_channels):
     )   
 
 
-class UNet(nn.Module):
+class UNetNoSkip(nn.Module):
+    '''
+    Unet implementation without skip connections, to work as a baseline
+    '''
 
     def __init__(self, n_class):
         super().__init__()
@@ -21,7 +24,118 @@ class UNet(nn.Module):
         self.dconv_down4 = double_conv(256, 512)        
 
         self.maxpool = nn.MaxPool2d(2)
-        self.upsample = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)        
+        self.upsample = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True) 
+        
+        self.dconv_up3 = double_conv(512, 256)
+        self.dconv_up2 = double_conv(256, 128)
+        self.dconv_up1 = double_conv(128, 64)
+        
+        self.conv_last = nn.Conv2d(64, n_class, 1)
+        
+        
+    def forward(self, x):
+        conv1 = self.dconv_down1(x)
+        x = self.maxpool(conv1)
+
+        conv2 = self.dconv_down2(x)
+        x = self.maxpool(conv2)
+        
+        conv3 = self.dconv_down3(x)
+        x = self.maxpool(conv3)   
+        
+        x = self.dconv_down4(x)
+
+        x = self.upsample(x)     
+        
+        x = self.dconv_up3(x)
+        x = self.upsample(x)             
+
+        x = self.dconv_up2(x)
+        x = self.upsample(x)
+        
+        x = self.dconv_up1(x)
+        
+        out = self.conv_last(x)
+        
+        return out
+
+
+
+
+class UNetSkip(nn.Module):
+    '''
+    Classic Unet implementation, with skip connections
+    '''
+    def __init__(self, n_class):
+        super().__init__()
+
+                
+        self.dconv_down1 = double_conv(3, 64)
+        self.dconv_down2 = double_conv(64, 128)
+        self.dconv_down3 = double_conv(128, 256)
+        self.dconv_down4 = double_conv(256, 512)        
+
+        self.maxpool = nn.MaxPool2d(2)
+        self.upsample = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True) 
+        
+        self.dconv_up3 = double_conv(256 + 512, 256)
+        self.dconv_up2 = double_conv(128 + 256, 128)
+        self.dconv_up1 = double_conv(128 + 64, 64)
+        
+        self.conv_last = nn.Conv2d(64, n_class, 1)
+        
+        
+    def forward(self, x):
+        conv1 = self.dconv_down1(x)
+        x = self.maxpool(conv1)
+
+        conv2 = self.dconv_down2(x)
+        x = self.maxpool(conv2)
+        
+        conv3 = self.dconv_down3(x)
+        x = self.maxpool(conv3)   
+        
+        x = self.dconv_down4(x)
+
+        x = self.upsample(x)        
+        x = torch.cat([x, conv3], dim=1)
+        
+        x = self.dconv_up3(x)
+        x = self.upsample(x)        
+        x = torch.cat([x, conv2], dim=1)       
+
+        x = self.dconv_up2(x)
+        x = self.upsample(x)        
+        x = torch.cat([x, conv1], dim=1)   
+        
+        x = self.dconv_up1(x)
+        
+        out = self.conv_last(x)
+        
+        return out
+
+
+
+
+
+class UNetDS(nn.Module):
+    '''
+    Unet with Deep Supervision
+    '''
+    def __init__(self, n_class):
+        super().__init__()
+                
+        self.dconv_down1 = double_conv(3, 64)
+        self.dconv_down2 = double_conv(64, 128)
+        self.dconv_down3 = double_conv(128, 256)
+        self.dconv_down4 = double_conv(256, 512)        
+
+        self.maxpool = nn.MaxPool2d(2)
+        self.upsample = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
+
+        self.ds_up3 = double_conv(512, n_class)
+        self.ds_up2 = double_conv(256 + 512, n_class)
+        self.ds_up1 = double_conv(128, n_class)
         
         self.dconv_up3 = double_conv(256 + 512, 256)
         self.dconv_up2 = double_conv(128 + 256, 128)
@@ -42,19 +156,27 @@ class UNet(nn.Module):
         
         x = self.dconv_down4(x)
         
+        up3 = nn.Upsample(scale_factor=8, mode='bilinear', align_corners=True)(x)
+        up3 = self.ds_up3(up3)
+
         x = self.upsample(x)        
         x = torch.cat([x, conv3], dim=1)
         
+        up2 = nn.Upsample(scale_factor=4, mode='bilinear', align_corners=True)(x)
+        up2 = self.ds_up2(up2)
+
         x = self.dconv_up3(x)
         x = self.upsample(x)        
         x = torch.cat([x, conv2], dim=1)       
 
         x = self.dconv_up2(x)
-        x = self.upsample(x)        
-        x = torch.cat([x, conv1], dim=1)   
-        
+        up1 = self.upsample(x)
+        x = torch.cat([up1, conv1], dim=1)   
+        up1 = self.ds_up1(up1)
         x = self.dconv_up1(x)
         
         out = self.conv_last(x)
+
+        up_outs = up3, up2, up1
         
-        return out
+        return out, up_outs
