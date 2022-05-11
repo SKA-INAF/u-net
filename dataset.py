@@ -122,3 +122,49 @@ class RGDataset(data.Dataset):
 
     def __len__(self):
         return len(self.imgs)
+
+
+class TestRGDataset(data.Dataset):
+
+    def __init__(self, root, split='test', joint_transform=None,
+                 transform=None, target_transform=None,
+                 download=False,
+                 loader=default_loader):
+        self.root = root
+        assert split in ('train', 'val', 'test')
+        self.split = split
+        self.transform = transform
+        self.target_transform = target_transform
+        self.joint_transform = joint_transform
+        self.loader = loader
+        self.class_weight = class_weight
+        self.classes = classes
+        self.mean = mean
+        self.std = std
+
+        if download:
+            self.download()
+
+        self.imgs = _make_dataset(os.path.join(self.root, self.split))
+
+    def __getitem__(self, index):
+        path = self.imgs[index]
+        img = self.loader(path)
+        num_classes = 4
+        target = Image.open(path.replace(self.split, self.split + 'annot'))
+
+        if self.joint_transform is not None:
+            img, target = self.joint_transform([img, target])
+
+        if self.transform is not None:
+            img = self.transform(img)
+        
+        target = self.target_transform(target)
+        masks = []
+        for i in range(num_classes):
+            masks.append(torch.where(target == i, 1, 0).unsqueeze(0))
+        target = torch.cat(masks)
+        return img, target, path
+
+    def __len__(self):
+        return len(self.imgs)

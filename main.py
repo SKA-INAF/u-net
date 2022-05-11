@@ -24,6 +24,7 @@ import dataset
 from torchsummary import summary
 import torch
 import pytorch_unet
+from utils import *
 from pytorch_unet import UNetDS
 from collections import defaultdict
 import torch.nn.functional as F
@@ -41,7 +42,6 @@ metric_names = ['accuracy', 'iou', 'precision', 'recall', 'dice', 'obj_precision
 DATA_PATH = Path('./data/')
 
 def get_args():
-    # TODO Model selection
     parser = argparse.ArgumentParser()
     parser.add_argument( "--model", default='unet', type=str, choices=['no-skip', 'unet', 'unet-ds'], help="Weights path from which start training")
     parser.add_argument( "--resume", default='', type=str, help="Weights path from which start training")
@@ -108,25 +108,10 @@ def main(args):
     val_loader = torch.utils.data.DataLoader(
         val_dset, batch_size=args.batch_size, shuffle=False)
 
-    test_dset = dataset.RGDataset(
-        DATA_PATH, 'test', joint_transform=None,
-        transform=transforms.Compose([
-            transforms.Resize([224, 224]),
-            transforms.ToTensor(),
-            normalize
-        ]),
-        target_transform=transforms.Compose([
-            transforms.Resize([224, 224]),
-            dataset.LabelToLongTensor(),
-        ]))
-    test_loader = torch.utils.data.DataLoader(
-        test_dset, batch_size=args.batch_size, shuffle=False)
-
 
     dataloaders = {
         'train': train_loader,
         'val': val_loader,
-        'test': test_loader
     }
 
     num_class = 4
@@ -171,35 +156,6 @@ def main(args):
     # print('Best val loss: {:4f}'.format(best_loss))
 
 
-def calc_loss(pred, target, metrics, bce_weight=0.5):
-    bce = F.binary_cross_entropy_with_logits(pred, target)
-        
-    pred = F.sigmoid(pred)
-    dice = dice_loss(pred, target)
-    
-    loss = bce * bce_weight + dice * (1 - bce_weight)
-    
-    # metrics['bce'] += bce.data.cpu().numpy() * target.size(0)
-    # metrics['dice'] += dice.data.cpu().numpy() * target.size(0)
-    # metrics['loss'] += loss.data.cpu().numpy() * target.size(0)
-    
-    return loss
-
-def print_metrics(metrics, epoch_samples, phase):
-    outputs = []
-    for k in metrics.keys():
-        outputs.append("{}: {:4f}".format(k, metrics[k] / epoch_samples))
-    print("{}: {}".format(phase, ", ".join(outputs)))  
-
-
-def get_predictions(output_batch):
-    bs,c,h,w = output_batch.size()
-    tensor = output_batch.data
-    values, indices = tensor.max(1)
-    indices = indices.view(bs,h,w)
-    return indices
-
-
 def train(model, optimizer, loader, args, scheduler=None):
 
     losses = []
@@ -238,28 +194,6 @@ def train(model, optimizer, loader, args, scheduler=None):
         losses.append(loss.detach().item())
         preds = get_predictions(outputs.detach())
         labels = get_predictions(labels)
-
-        # for i, class_name in enumerate(classes[1:]):
-        #     union = compute_union(preds, labels, i + 1) 
-            
-        #     if union == 0:
-        #         # There is no object with that class, skipping...
-        #         continue
-
-        #     tp, fp, fn, tn = compute_confusion_matrix(preds, labels, i + 1)
-        #     obj_tp, obj_fp, obj_fn = compute_object_confusion_matrix(preds, labels, i + 1)
-
-        #     accuracy, iou, precision, recall, dice = compute_batch_metrics(union, tp, fp, fn, tn)
-        #     obj_precision, obj_recall = compute_batch_obj_metrics(obj_tp, obj_fp, obj_fn)
-
-            # batch_metrics[class_name]['accuracy'].append(accuracy)
-            # batch_metrics[class_name]['iou'].append(iou)
-            # batch_metrics[class_name]['precision'].append(precision)
-            # batch_metrics[class_name]['recall'].append(recall)
-            # batch_metrics[class_name]['dice'].append(dice)
-            # batch_metrics[class_name]['obj_precision'].append(obj_precision)
-            # batch_metrics[class_name]['obj_recall'].append(obj_recall)
-
 
     trn_loss = np.mean(losses)
     for class_name in classes[1:]:
@@ -300,26 +234,6 @@ def validate(model, loader, epoch, args):
         losses.append(loss.item())
         preds = get_predictions(outputs.detach())
         labels = get_predictions(labels)
-        # for i, class_name in enumerate(classes[1:]):
-        #     union = compute_union(preds, labels, i + 1) 
-            
-        #     if union == 0:
-        #         # There is no object with that class, skipping...
-        #         continue
-
-        #     tp, fp, fn, tn = compute_confusion_matrix(preds, labels, i + 1)
-        #     obj_tp, obj_fp, obj_fn = compute_object_confusion_matrix(preds, labels, i + 1)
-
-        #     accuracy, iou, precision, recall, dice = compute_batch_metrics(union, tp, fp, fn, tn)
-        #     obj_precision, obj_recall = compute_batch_obj_metrics(obj_tp, obj_fp, obj_fn)
-
-        #     batch_metrics[class_name]['accuracy'].append(accuracy)
-        #     batch_metrics[class_name]['iou'].append(iou)
-        #     batch_metrics[class_name]['precision'].append(precision)
-        #     batch_metrics[class_name]['recall'].append(recall)
-        #     batch_metrics[class_name]['dice'].append(dice)
-        #     batch_metrics[class_name]['obj_precision'].append(obj_precision)
-        #     batch_metrics[class_name]['obj_recall'].append(obj_recall)
 
     epoch_loss = np.mean(losses)
     for class_name in classes[1:]:

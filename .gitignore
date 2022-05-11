@@ -108,3 +108,4 @@ weights
 *.txt
 *.th
 .vscode
+snr_data
